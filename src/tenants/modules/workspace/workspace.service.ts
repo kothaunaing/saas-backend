@@ -33,6 +33,9 @@ export class WorkspaceService {
       throw new ForbiddenException('You cannot access this tenant');
     return {
       customers: tenant.customers.map((customer) => {
+        const customerAppointments = tenant.appointments.filter(
+          (item) => item.customerId === customer.id,
+        );
         const visits = tenant.appointments.filter(
           (item) =>
             item.customerId === customer.id && item.status === 'COMPLETED',
@@ -45,10 +48,15 @@ export class WorkspaceService {
           points: customer.points,
           notes: customer.notes ?? '',
           visits: visits.length,
-          noShow: tenant.appointments.filter(
-            (item) =>
-              item.customerId === customer.id && item.status === 'NO_SHOW',
-          ).length,
+          noShow: customerAppointments.length
+            ? Math.round(
+                (customerAppointments.filter(
+                  (item) => item.status === 'NO_SHOW',
+                ).length /
+                  customerAppointments.length) *
+                  100,
+              )
+            : 0,
           spent: visits.reduce(
             (sum, item) =>
               sum +

@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
@@ -56,7 +60,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         select: { maintenanceMode: true },
       });
       if (settings?.maintenanceMode)
-        throw new ForbiddenException('The platform is temporarily under maintenance');
+        throw new ForbiddenException(
+          'The platform is temporarily under maintenance',
+        );
     }
     return {
       id: user.id,
