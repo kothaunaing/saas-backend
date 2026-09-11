@@ -7,6 +7,8 @@ import { PlatformModule } from './platform/platform.module';
 import { BookingModule } from './booking/booking.module';
 import { AuthModule } from './auth/auth.module';
 import { SchedulingModule } from './booking/scheduling/scheduling.module';
+import { APP_FILTER } from '@nestjs/core';
+import { SystemErrorFilter } from './common/filters/system-error.filter';
 
 @Module({
   imports: [
@@ -19,5 +21,6 @@ import { SchedulingModule } from './booking/scheduling/scheduling.module';
     AuthModule,
     SchedulingModule,
   ],
+  providers: [{ provide: APP_FILTER, useClass: SystemErrorFilter }],
 })
 export class AppModule {}

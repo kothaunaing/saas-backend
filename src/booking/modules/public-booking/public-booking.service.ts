@@ -44,8 +44,8 @@ export class PublicBookingService {
   }
 
   async salon(slug: string) {
-    const salon = await this.prisma.tenant.findUnique({
-      where: { slug },
+    const salon = await this.prisma.tenant.findFirst({
+      where: { slug, status: { in: ['ACTIVE', 'TRIAL'] } },
       select: {
         id: true,
         slug: true,
@@ -114,7 +114,9 @@ export class PublicBookingService {
     query: AvailabilityQueryDto,
     excludeAppointmentId?: string,
   ) {
-    const tenant = await this.prisma.tenant.findUnique({ where: { slug } });
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { slug, status: { in: ['ACTIVE', 'TRIAL'] } },
+    });
     if (!tenant) throw new NotFoundException('Salon not found');
     const service = await this.prisma.service.findFirst({
       where: { id: query.serviceId, tenantId: tenant.id, active: true },
@@ -182,7 +184,9 @@ export class PublicBookingService {
   }
 
   async create(slug: string, dto: CreateBookingDto, user?: AuthUser) {
-    const tenant = await this.prisma.tenant.findUnique({ where: { slug } });
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { slug, status: { in: ['ACTIVE', 'TRIAL'] } },
+    });
     if (!tenant) throw new NotFoundException('Salon not found');
     const identity = user
       ? await this.prisma.user.findUniqueOrThrow({ where: { id: user.id } })
@@ -217,7 +221,7 @@ export class PublicBookingService {
           },
           update: { name: customerName, phone: dto.customerPhone },
         });
-        return tx.appointment.create({
+        const appointment = await tx.appointment.create({
           data: {
             tenantId: tenant.id,
             customerId: customer.id,
@@ -231,6 +235,46 @@ export class PublicBookingService {
           },
           include: { customer: true, service: true, staff: true },
         });
+        const channels = [
+          {
+            channel: 'EMAIL' as const,
+            recipient: customer.email,
+          },
+          ...(customer.phone
+            ? [{ channel: 'SMS' as const, recipient: customer.phone }]
+            : []),
+        ];
+        await tx.notification.createMany({
+          data: channels.flatMap(({ channel, recipient }) => [
+            ...(tenant.confirmation
+              ? [
+                  {
+                    tenantId: tenant.id,
+                    appointmentId: appointment.id,
+                    channel,
+                    recipient,
+                    kind: 'BOOKING_CONFIRMATION' as const,
+                    scheduledFor: new Date(),
+                  },
+                ]
+              : []),
+            ...(tenant.reminders
+              ? [
+                  {
+                    tenantId: tenant.id,
+                    appointmentId: appointment.id,
+                    channel,
+                    recipient,
+                    kind: 'APPOINTMENT_REMINDER' as const,
+                    scheduledFor: new Date(
+                      appointment.startsAt.getTime() - 86_400_000,
+                    ),
+                  },
+                ]
+              : []),
+          ]),
+        });
+        return appointment;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -276,7 +320,7 @@ export class PublicBookingService {
           excludeAppointmentId: appointmentId,
           lockStaff: true,
         });
-        return tx.appointment.update({
+        const updated = await tx.appointment.update({
           where: { id: appointmentId },
           data: {
             serviceId: dto.serviceId,
@@ -286,6 +330,19 @@ export class PublicBookingService {
           },
           include: { customer: true, service: true, staff: true },
         });
+        await tx.notification.updateMany({
+          where: {
+            appointmentId,
+            kind: 'APPOINTMENT_REMINDER',
+            status: { in: ['QUEUED', 'FAILED'] },
+          },
+          data: {
+            scheduledFor: new Date(startsAt.getTime() - 86_400_000),
+            status: 'QUEUED',
+            failureReason: null,
+          },
+        });
+        return updated;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );

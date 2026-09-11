@@ -14,6 +14,7 @@ export class AuthService {
     const email = dto.email.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({
       where: { email },
+      include: { tenant: { select: { slug: true } } },
     });
     if (!user || !(await compare(dto.password, user.passwordHash)))
       throw new UnauthorizedException('Invalid email or password');
@@ -24,6 +25,7 @@ export class AuthService {
       role: user.role,
       tenantId: user.tenantId,
       customerId: user.customerId,
+      tenantSlug: user.tenant?.slug ?? null,
     };
     return {
       accessToken: await this.jwt.signAsync({
@@ -46,9 +48,14 @@ export class AuthService {
         role: true,
         tenantId: true,
         customerId: true,
+        tenant: { select: { slug: true } },
       },
     });
     if (!user) throw new UnauthorizedException();
-    return user;
+    return {
+      ...user,
+      tenantSlug: user.tenant?.slug ?? null,
+      tenant: undefined,
+    };
   }
 }

@@ -111,9 +111,14 @@ export class CustomerAccountService {
       throw new BadRequestException(
         'Online cancellation closes 24 hours before the appointment',
       );
-    return this.prisma.appointment.update({
-      where: { id: appointmentId },
-      data: { status: 'CANCELLED' },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.notification.deleteMany({
+        where: { appointmentId, status: { in: ['QUEUED', 'FAILED'] } },
+      });
+      return tx.appointment.update({
+        where: { id: appointmentId },
+        data: { status: 'CANCELLED' },
+      });
     });
   }
   async review(user: AuthUser, dto: CreateReviewDto) {
