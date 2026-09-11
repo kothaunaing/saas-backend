@@ -336,6 +336,29 @@ export class AppointmentsService {
             lockStaff: true,
           });
         }
+        const enteringCompleted =
+          dto.status === AppointmentStatus.COMPLETED &&
+          existing.status !== AppointmentStatus.COMPLETED &&
+          existing.loyaltyPointsAwarded === 0;
+        let loyaltyPointsAwarded: number | undefined;
+        if (enteringCompleted && tenant.loyalty && tenant.pointsPerDollar > 0) {
+          const pricedService = await tx.service.findFirst({
+            where: { id: serviceId, tenantId: tenant.id },
+            select: { price: true },
+          });
+          if (!pricedService)
+            throw new NotFoundException('Service not found for tenant');
+          loyaltyPointsAwarded = Math.max(
+            0,
+            Math.floor(Number(pricedService.price) * tenant.pointsPerDollar),
+          );
+          if (loyaltyPointsAwarded > 0) {
+            await tx.customer.update({
+              where: { id: customerId },
+              data: { points: { increment: loyaltyPointsAwarded } },
+            });
+          }
+        }
         return tx.appointment.update({
           where: { id },
           data: {
@@ -345,6 +368,7 @@ export class AppointmentsService {
             startsAt,
             status: dto.status,
             notes: dto.notes,
+            loyaltyPointsAwarded,
           },
           include: { customer: true, service: true, staff: true },
         });

@@ -4,6 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { AppointmentStatus, Prisma } from '../../generated/prisma/client';
+import { intervalsOverlap, scheduleRuleViolation } from './scheduling.rules';
 
 type DatabaseClient = Prisma.TransactionClient;
 
@@ -68,25 +69,12 @@ export class SchedulingService {
       (day) => day.dayOfWeek === local.dayOfWeek,
     );
     const startsMinute = local.hour * 60 + local.minute;
-    const endsMinute = startsMinute + service.duration;
-    if (
-      !workDay?.enabled ||
-      startsMinute < toMinutes(workDay.startTime) ||
-      endsMinute > toMinutes(workDay.endTime)
-    ) {
-      throw new BadRequestException(
-        "Appointment is outside the staff member's working hours",
-      );
-    }
-    if (
-      workDay.breaks.some(
-        (item) =>
-          startsMinute < toMinutes(item.endTime) &&
-          endsMinute > toMinutes(item.startTime),
-      )
-    ) {
-      throw new BadRequestException('Appointment overlaps a staff break');
-    }
+    const violation = scheduleRuleViolation(
+      startsMinute,
+      service.duration,
+      workDay,
+    );
+    if (violation) throw new BadRequestException(violation);
 
     const windowStart = new Date(
       request.startsAt.getTime() - 24 * 60 * 60 * 1000,
@@ -106,12 +94,12 @@ export class SchedulingService {
       },
       select: { startsAt: true, service: { select: { duration: true } } },
     });
-    const requestedEnd = request.startsAt.getTime() + service.duration * 60_000;
     const conflict = appointments.some((appointment) => {
-      const existingStart = appointment.startsAt.getTime();
-      const existingEnd = existingStart + appointment.service.duration * 60_000;
-      return (
-        request.startsAt.getTime() < existingEnd && requestedEnd > existingStart
+      return intervalsOverlap(
+        request.startsAt.getTime(),
+        service.duration,
+        appointment.startsAt.getTime(),
+        appointment.service.duration,
       );
     });
     if (conflict)
@@ -119,11 +107,6 @@ export class SchedulingService {
         'Staff member already has an appointment at this time',
       );
   }
-}
-
-function toMinutes(value: string): number {
-  const [hour, minute] = value.split(':').map(Number);
-  return hour * 60 + minute;
 }
 
 function localDateParts(

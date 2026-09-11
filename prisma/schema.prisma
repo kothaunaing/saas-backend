@@ -233,6 +233,7 @@ model Appointment {
   startsAt   DateTime
   status     AppointmentStatus @default(PENDING)
   notes      String?
+  loyaltyPointsAwarded Int     @default(0)
   review     Review?
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt

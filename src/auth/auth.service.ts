@@ -11,8 +11,7 @@ export class AuthService {
     private readonly jwt: JwtService,
   ) {}
   async login(dto: LoginDto) {
-    const rawEmail = dto.email.trim().toLowerCase();
-    const email = rawEmail === 'ei.khaing@gmail.com' ? 'ei.khaing@example.com' : rawEmail;
+    const email = dto.email.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
