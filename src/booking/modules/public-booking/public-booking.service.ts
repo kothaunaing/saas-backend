@@ -8,10 +8,14 @@ import { PrismaService } from '../../../database/prisma/prisma.service';
 import { AvailabilityQueryDto } from './dto/availability-query.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import type { AuthUser } from '../../../auth/auth.types';
+import { SchedulingService } from '../../scheduling/scheduling.service';
 
 @Injectable()
 export class PublicBookingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scheduling: SchedulingService,
+  ) {}
 
   async salons() {
     const rows = await this.prisma.tenant.findMany({
@@ -193,6 +197,14 @@ export class PublicBookingService {
     }
     return this.prisma.$transaction(
       async (tx) => {
+        await this.scheduling.assertAvailable(tx, {
+          tenantId: tenant.id,
+          serviceId: dto.serviceId,
+          staffId,
+          startsAt: zonedDate(dto.date, dto.time, tenant.timezone),
+          timezone: tenant.timezone,
+          lockStaff: true,
+        });
         const customer = await tx.customer.upsert({
           where: {
             tenantId_email: { tenantId: tenant.id, email: customerEmail },
@@ -252,16 +264,31 @@ export class PublicBookingService {
     const staffId = dto.staffId === 'any' ? slot?.staffIds[0] : dto.staffId;
     if (!slot || !staffId || !slot.staffIds.includes(staffId))
       throw new BadRequestException('The selected time is no longer available');
-    return this.prisma.appointment.update({
-      where: { id: appointmentId },
-      data: {
-        serviceId: dto.serviceId,
-        staffId,
-        startsAt: zonedDate(dto.date, dto.time, appointment.tenant.timezone),
-        notes: dto.notes,
+    const startsAt = zonedDate(dto.date, dto.time, appointment.tenant.timezone);
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.scheduling.assertAvailable(tx, {
+          tenantId: appointment.tenantId,
+          serviceId: dto.serviceId,
+          staffId,
+          startsAt,
+          timezone: appointment.tenant.timezone,
+          excludeAppointmentId: appointmentId,
+          lockStaff: true,
+        });
+        return tx.appointment.update({
+          where: { id: appointmentId },
+          data: {
+            serviceId: dto.serviceId,
+            staffId,
+            startsAt,
+            notes: dto.notes,
+          },
+          include: { customer: true, service: true, staff: true },
+        });
       },
-      include: { customer: true, service: true, staff: true },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 }
 

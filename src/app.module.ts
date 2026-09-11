@@ -6,6 +6,7 @@ import { TenantsModule } from './tenants/tenants.module';
 import { PlatformModule } from './platform/platform.module';
 import { BookingModule } from './booking/booking.module';
 import { AuthModule } from './auth/auth.module';
+import { SchedulingModule } from './booking/scheduling/scheduling.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AuthModule } from './auth/auth.module';
     PlatformModule,
     BookingModule,
     AuthModule,
+    SchedulingModule,
   ],
 })
 export class AppModule {}

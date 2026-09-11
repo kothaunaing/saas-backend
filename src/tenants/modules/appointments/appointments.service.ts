@@ -3,16 +3,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  AppointmentStatus,
-  Prisma,
-} from '../../../generated/prisma/client';
+import { AppointmentStatus, Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../database/prisma/prisma.service';
 import { PaginatedResponse } from '../../../common/dto/page-size.dto';
 import { getAuthorizedTenant } from '../../utils/tenant.utils';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentsDto } from './dto/query-appointments.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
+import { SchedulingService } from '../../../booking/scheduling/scheduling.service';
 
 const DISPLAY_STATUS_MAP: Record<AppointmentStatus, string> = {
   PENDING: 'Pending',
@@ -65,7 +63,10 @@ export interface AppointmentDetail {
 
 @Injectable()
 export class AppointmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scheduling: SchedulingService,
+  ) {}
 
   private mapAppointment(item: AppointmentPayload): AppointmentDetail {
     return {
@@ -243,38 +244,37 @@ export class AppointmentsService {
     );
     const startsAt = this.resolveStartsAt(dto);
 
-    const [customer, service, staff] = await Promise.all([
-      this.prisma.customer.findFirst({
-        where: { id: dto.customerId, tenantId: tenant.id },
-      }),
-      this.prisma.service.findFirst({
-        where: { id: dto.serviceId, tenantId: tenant.id },
-      }),
-      this.prisma.staff.findFirst({
-        where: { id: dto.staffId, tenantId: tenant.id },
-      }),
-    ]);
-
-    if (!customer) throw new NotFoundException('Customer not found for tenant');
-    if (!service) throw new NotFoundException('Service not found for tenant');
-    if (!staff) throw new NotFoundException('Staff member not found for tenant');
-
-    const created = await this.prisma.appointment.create({
-      data: {
-        tenantId: tenant.id,
-        customerId: dto.customerId,
-        serviceId: dto.serviceId,
-        staffId: dto.staffId,
-        startsAt,
-        status: dto.status ?? AppointmentStatus.PENDING,
-        notes: dto.notes,
+    const created = await this.prisma.$transaction(
+      async (tx) => {
+        const customer = await tx.customer.findFirst({
+          where: { id: dto.customerId, tenantId: tenant.id },
+          select: { id: true },
+        });
+        if (!customer)
+          throw new NotFoundException('Customer not found for tenant');
+        await this.scheduling.assertAvailable(tx, {
+          tenantId: tenant.id,
+          serviceId: dto.serviceId,
+          staffId: dto.staffId,
+          startsAt,
+          timezone: tenant.timezone,
+          lockStaff: true,
+        });
+        return tx.appointment.create({
+          data: {
+            tenantId: tenant.id,
+            customerId: dto.customerId,
+            serviceId: dto.serviceId,
+            staffId: dto.staffId,
+            startsAt,
+            status: dto.status ?? AppointmentStatus.PENDING,
+            notes: dto.notes,
+          },
+          include: { customer: true, service: true, staff: true },
+        });
       },
-      include: {
-        customer: true,
-        service: true,
-        staff: true,
-      },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     return this.mapAppointment(created);
   }
@@ -304,41 +304,53 @@ export class AppointmentsService {
       startsAt = this.resolveStartsAt(dto);
     }
 
-    if (dto.customerId) {
-      const customer = await this.prisma.customer.findFirst({
-        where: { id: dto.customerId, tenantId: tenant.id },
-      });
-      if (!customer) throw new NotFoundException('Customer not found for tenant');
-    }
-    if (dto.serviceId) {
-      const service = await this.prisma.service.findFirst({
-        where: { id: dto.serviceId, tenantId: tenant.id },
-      });
-      if (!service) throw new NotFoundException('Service not found for tenant');
-    }
-    if (dto.staffId) {
-      const staff = await this.prisma.staff.findFirst({
-        where: { id: dto.staffId, tenantId: tenant.id },
-      });
-      if (!staff) throw new NotFoundException('Staff member not found for tenant');
-    }
-
-    const updated = await this.prisma.appointment.update({
-      where: { id },
-      data: {
-        customerId: dto.customerId,
-        serviceId: dto.serviceId,
-        staffId: dto.staffId,
-        startsAt,
-        status: dto.status,
-        notes: dto.notes,
+    const updated = await this.prisma.$transaction(
+      async (tx) => {
+        const customerId = dto.customerId ?? existing.customerId;
+        const serviceId = dto.serviceId ?? existing.serviceId;
+        const staffId = dto.staffId ?? existing.staffId;
+        const nextStartsAt = startsAt ?? existing.startsAt;
+        if (dto.customerId) {
+          const customer = await tx.customer.findFirst({
+            where: { id: customerId, tenantId: tenant.id },
+            select: { id: true },
+          });
+          if (!customer)
+            throw new NotFoundException('Customer not found for tenant');
+        }
+        if (
+          dto.serviceId ||
+          dto.staffId ||
+          startsAt ||
+          (dto.status &&
+            dto.status !== AppointmentStatus.CANCELLED &&
+            dto.status !== AppointmentStatus.NO_SHOW)
+        ) {
+          await this.scheduling.assertAvailable(tx, {
+            tenantId: tenant.id,
+            serviceId,
+            staffId,
+            startsAt: nextStartsAt,
+            timezone: tenant.timezone,
+            excludeAppointmentId: id,
+            lockStaff: true,
+          });
+        }
+        return tx.appointment.update({
+          where: { id },
+          data: {
+            customerId: dto.customerId,
+            serviceId: dto.serviceId,
+            staffId: dto.staffId,
+            startsAt,
+            status: dto.status,
+            notes: dto.notes,
+          },
+          include: { customer: true, service: true, staff: true },
+        });
       },
-      include: {
-        customer: true,
-        service: true,
-        staff: true,
-      },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     return this.mapAppointment(updated);
   }
