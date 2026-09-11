@@ -11,6 +11,7 @@ import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentsDto } from './dto/query-appointments.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { SchedulingService } from '../../../booking/scheduling/scheduling.service';
+import { calculateLoyaltyPoints } from '../rewards/utils/loyalty.rules';
 
 const DISPLAY_STATUS_MAP: Record<AppointmentStatus, string> = {
   PENDING: 'Pending',
@@ -348,9 +349,9 @@ export class AppointmentsService {
           });
           if (!pricedService)
             throw new NotFoundException('Service not found for tenant');
-          loyaltyPointsAwarded = Math.max(
-            0,
-            Math.floor(Number(pricedService.price) * tenant.pointsPerDollar),
+          loyaltyPointsAwarded = calculateLoyaltyPoints(
+            Number(pricedService.price),
+            tenant.pointsPerDollar,
           );
           if (loyaltyPointsAwarded > 0) {
             await tx.customer.update({

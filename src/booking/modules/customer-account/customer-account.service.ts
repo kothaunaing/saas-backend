@@ -52,6 +52,7 @@ export class CustomerAccountService {
                   {
                     ...reward,
                     salonId: customer.tenant.slug,
+                    balance: customer.points,
                   },
                 ] as const,
             ),
