@@ -12,6 +12,11 @@ import { QueryAppointmentsDto } from './dto/query-appointments.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { SchedulingService } from '../../../booking/scheduling/scheduling.service';
 import { calculateLoyaltyPoints } from '../rewards/utils/loyalty.rules';
+import {
+  dateTimeToUtc,
+  utcDateTimeParts,
+  utcDayBounds,
+} from '../../../common/utils/datetime';
 
 const DISPLAY_STATUS_MAP: Record<AppointmentStatus, string> = {
   PENDING: 'Pending',
@@ -70,6 +75,7 @@ export class AppointmentsService {
   ) {}
 
   private mapAppointment(item: AppointmentPayload): AppointmentDetail {
+    const local = utcDateTimeParts(item.startsAt);
     return {
       id: item.id,
       customerId: item.customerId,
@@ -78,8 +84,8 @@ export class AppointmentsService {
       status: DISPLAY_STATUS_MAP[item.status] ?? item.status,
       rawStatus: item.status,
       startsAt: item.startsAt,
-      date: item.startsAt.toISOString().slice(0, 10),
-      time: item.startsAt.toISOString().slice(11, 16),
+      date: local.date,
+      time: local.time,
       notes: item.notes ?? '',
       customer: item.customer
         ? {
@@ -122,7 +128,7 @@ export class AppointmentsService {
       return d;
     }
     if (dto.date && dto.time) {
-      const d = new Date(`${dto.date}T${dto.time}:00Z`);
+      const d = dateTimeToUtc(dto.date, dto.time);
       if (isNaN(d.getTime())) {
         throw new BadRequestException('Invalid date or time format');
       }
@@ -162,8 +168,7 @@ export class AppointmentsService {
     }
 
     if (query.date && query.date.trim() !== '') {
-      const startOfDay = new Date(`${query.date.trim()}T00:00:00.000Z`);
-      const endOfDay = new Date(`${query.date.trim()}T23:59:59.999Z`);
+      const { start: startOfDay, end: endOfDay } = utcDayBounds(query.date.trim());
       where.startsAt = {
         gte: startOfDay,
         lte: endOfDay,
@@ -258,7 +263,6 @@ export class AppointmentsService {
           serviceId: dto.serviceId,
           staffId: dto.staffId,
           startsAt,
-          timezone: tenant.timezone,
           lockStaff: true,
         });
         return tx.appointment.create({
@@ -332,7 +336,6 @@ export class AppointmentsService {
             serviceId,
             staffId,
             startsAt: nextStartsAt,
-            timezone: tenant.timezone,
             excludeAppointmentId: id,
             lockStaff: true,
           });

@@ -1,11 +1,11 @@
 import {
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/prisma/prisma.service';
 import type { AuthUser } from '../../../auth/auth.types';
+import { getAuthorizedTenant } from '../../../tenants/utils/tenant.utils';
 
 @Injectable()
 export class NotificationsService {
@@ -20,7 +20,12 @@ export class NotificationsService {
       select: { email: true },
     });
     return this.prisma.notification.findMany({
-      where: { appointment: { customer: { email: identity.email } } },
+      where: {
+        appointment: {
+          customer: { email: identity.email },
+          tenant: { status: { in: ['ACTIVE', 'TRIAL'] } },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -123,13 +128,7 @@ export class NotificationsService {
   }
 
   private async authorize(slug: string, tenantId: string | null) {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
-    if (!tenant) throw new NotFoundException('Tenant not found');
-    if (!tenantId || tenant.id !== tenantId)
-      throw new ForbiddenException('You cannot access this tenant');
-    return tenant;
+    if (!tenantId) throw new ForbiddenException('You cannot access this tenant');
+    return getAuthorizedTenant(this.prisma, slug, tenantId);
   }
 }

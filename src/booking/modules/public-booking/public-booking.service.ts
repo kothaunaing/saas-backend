@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,6 +10,11 @@ import { AvailabilityQueryDto } from './dto/availability-query.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import type { AuthUser } from '../../../auth/auth.types';
 import { SchedulingService } from '../../scheduling/scheduling.service';
+import {
+  dateTimeToUtc,
+  utcDateTimeParts,
+  utcDayBounds,
+} from '../../../common/utils/datetime';
 
 @Injectable()
 export class PublicBookingService {
@@ -56,7 +62,6 @@ export class PublicBookingService {
         phone: true,
         imageUrl: true,
         amenities: true,
-        timezone: true,
         currency: true,
         services: { where: { active: true }, orderBy: { name: 'asc' } },
         staff: {
@@ -132,9 +137,7 @@ export class PublicBookingService {
       include: { hours: { include: { breaks: true } } },
     });
     const dayOfWeek = new Date(`${query.date}T12:00:00Z`).getUTCDay();
-    const dayStart = zonedDate(query.date, '00:00', tenant.timezone);
-    const dayEnd = zonedDate(query.date, '23:59', tenant.timezone);
-    dayEnd.setUTCSeconds(59, 999);
+    const { start: dayStart, end: dayEnd } = utcDayBounds(query.date);
     const appointments = await this.prisma.appointment.findMany({
       where: {
         tenantId: tenant.id,
@@ -150,7 +153,10 @@ export class PublicBookingService {
     for (let minute = 0; minute < 1440; minute += 30) {
       const time = `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
       const end = minute + service.duration;
-      if (zonedDate(query.date, time, tenant.timezone).getTime() <= Date.now())
+      if (
+        dateTimeToUtc(query.date, time).getTime() <=
+        Date.now()
+      )
         continue;
       const staffIds = staff
         .filter((member) => {
@@ -173,7 +179,7 @@ export class PublicBookingService {
             return false;
           return !appointments.some((item) => {
             if (item.staffId !== member.id) return false;
-            const start = zonedMinutes(item.startsAt, tenant.timezone);
+            const start = zonedMinutes(item.startsAt);
             return minute < start + item.service.duration && end > start;
           });
         })
@@ -197,7 +203,7 @@ export class PublicBookingService {
     const slot = slots.find((item) => item.time === dto.time);
     const staffId = dto.staffId === 'any' ? slot?.staffIds[0] : dto.staffId;
     if (!slot || !staffId || !slot.staffIds.includes(staffId)) {
-      throw new BadRequestException('The selected time is no longer available');
+      throw new ConflictException('The selected time is no longer available');
     }
     return this.prisma.$transaction(
       async (tx) => {
@@ -205,8 +211,7 @@ export class PublicBookingService {
           tenantId: tenant.id,
           serviceId: dto.serviceId,
           staffId,
-          startsAt: zonedDate(dto.date, dto.time, tenant.timezone),
-          timezone: tenant.timezone,
+          startsAt: dateTimeToUtc(dto.date, dto.time),
           lockStaff: true,
         });
         const customer = await tx.customer.upsert({
@@ -227,7 +232,7 @@ export class PublicBookingService {
             customerId: customer.id,
             serviceId: dto.serviceId,
             staffId,
-            startsAt: zonedDate(dto.date, dto.time, tenant.timezone),
+            startsAt: dateTimeToUtc(dto.date, dto.time),
             status: tenant.confirmation
               ? AppointmentStatus.CONFIRMED
               : AppointmentStatus.PENDING,
@@ -292,10 +297,9 @@ export class PublicBookingService {
     const appointment = await this.prisma.appointment.findFirst({
       where: {
         id: appointmentId,
-        tenant: { slug },
+        tenant: { slug, status: { in: ['ACTIVE', 'TRIAL'] } },
         customer: { email: identity.email },
       },
-      include: { tenant: { select: { timezone: true } } },
     });
     if (!appointment)
       throw new NotFoundException('Booking not found for this account');
@@ -307,8 +311,8 @@ export class PublicBookingService {
     const slot = slots.find((item) => item.time === dto.time);
     const staffId = dto.staffId === 'any' ? slot?.staffIds[0] : dto.staffId;
     if (!slot || !staffId || !slot.staffIds.includes(staffId))
-      throw new BadRequestException('The selected time is no longer available');
-    const startsAt = zonedDate(dto.date, dto.time, appointment.tenant.timezone);
+      throw new ConflictException('The selected time is no longer available');
+    const startsAt = dateTimeToUtc(dto.date, dto.time);
     return this.prisma.$transaction(
       async (tx) => {
         await this.scheduling.assertAvailable(tx, {
@@ -316,7 +320,6 @@ export class PublicBookingService {
           serviceId: dto.serviceId,
           staffId,
           startsAt,
-          timezone: appointment.tenant.timezone,
           excludeAppointmentId: appointmentId,
           lockStaff: true,
         });
@@ -354,41 +357,7 @@ function toMinutes(value: string) {
   return hours * 60 + minutes;
 }
 
-function zonedDate(date: string, time: string, timezone: string) {
-  const guess = new Date(`${date}T${time}:00Z`);
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(guess);
-  const value = Object.fromEntries(
-    parts.map((part) => [part.type, part.value]),
-  );
-  const represented = Date.UTC(
-    +value.year,
-    +value.month - 1,
-    +value.day,
-    +value.hour,
-    +value.minute,
-    +value.second,
-  );
-  return new Date(guess.getTime() - (represented - guess.getTime()));
-}
-
-function zonedMinutes(date: Date, timezone: string) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-  const value = Object.fromEntries(
-    parts.map((part) => [part.type, part.value]),
-  );
-  return +value.hour * 60 + +value.minute;
+function zonedMinutes(date: Date) {
+  const local = utcDateTimeParts(date);
+  return toMinutes(local.time);
 }

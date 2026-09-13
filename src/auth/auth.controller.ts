@@ -1,11 +1,23 @@
-import { Body, Controller, Get, Post, Res, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Post,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiCreatedResponse, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import type { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth/jwt-auth.guard';
+import { portalCookieName } from './auth-cookies';
+import { RegisterCustomerDto } from './dto/register-customer.dto';
+import { RegisterTenantDto } from './dto/register-tenant.dto';
 
 /**
  * Cookie names are scoped by role so that logging in on one frontend
@@ -37,29 +49,53 @@ function cookieOptions(maxAge = 7 * 24 * 60 * 60 * 1000) {
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Get('registration/plans')
+  registrationPlans() {
+    return this.authService.registrationPlans();
+  }
+
+  @Post('register/customer')
+  @ApiCreatedResponse({ description: 'Customer account created' })
+  registerCustomer(@Body() dto: RegisterCustomerDto) {
+    return this.authService.registerCustomer(dto);
+  }
+
+  @Post('register/tenant')
+  @ApiCreatedResponse({ description: 'Tenant trial workspace created' })
+  registerTenant(@Body() dto: RegisterTenantDto) {
+    return this.authService.registerTenant(dto);
+  }
+
   @Post('login')
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) response: Response,
   ) {
     const session = await this.authService.login(dto);
-    const cookieName = COOKIE_BY_ROLE[session.user.role] ?? 'customer_access_token';
+    const cookieName =
+      COOKIE_BY_ROLE[session.user.role] ?? 'customer_access_token';
     response.cookie(cookieName, session.accessToken, cookieOptions());
     return { user: session.user };
   }
 
   @Post('logout')
-  logout(@Res({ passthrough: true }) response: Response) {
-    // Clear all role cookies on logout so a single logout signs out everywhere.
+  logout(
+    @Headers('x-serenity-portal') portal: string | undefined,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const cookieName = portalCookieName(portal);
+    if (!cookieName) {
+      throw new BadRequestException(
+        'A valid x-serenity-portal header is required to log out',
+      );
+    }
     const clearOpts = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax' as const,
       path: '/',
     };
-    response.clearCookie('customer_access_token', clearOpts);
-    response.clearCookie('tenant_access_token', clearOpts);
-    response.clearCookie('provider_access_token', clearOpts);
+    response.clearCookie(cookieName, clearOpts);
     return { success: true };
   }
 

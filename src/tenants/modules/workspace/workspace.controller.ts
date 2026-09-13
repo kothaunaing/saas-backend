@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../../../auth/guards/jwt-auth/jwt-auth.guard';
 import { RolesGuard } from '../../../auth/guards/roles/roles.guard';
 import type { AuthUser } from '../../../auth/auth.types';
 import { WorkspaceService } from './workspace.service';
-import { UpdateWorkspaceDto } from './dto/workspace.dto';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 @ApiTags('tenant workspace')
 @Controller('tenants')
@@ -16,19 +16,19 @@ import { UpdateWorkspaceDto } from './dto/workspace.dto';
 export class WorkspaceController {
   constructor(private readonly tenantsService: WorkspaceService) {}
 
-  @Get(':slug/workspace')
-  @ApiOperation({ summary: 'Get all operational data for a tenant workspace' })
-  workspace(@Param('slug') slug: string, @CurrentUser() user: AuthUser) {
-    return this.tenantsService.workspace(slug, user.tenantId);
+  @Get(':slug/settings')
+  @ApiOperation({ summary: 'Get tenant workspace settings' })
+  settings(@Param('slug') slug: string, @CurrentUser() user: AuthUser) {
+    return this.tenantsService.settings(slug, user.tenantId);
   }
 
-  @Put(':slug/workspace')
-  @ApiOperation({ summary: 'Atomically replace a tenant workspace snapshot' })
-  replace(
+  @Put(':slug/settings')
+  @ApiOperation({ summary: 'Update tenant workspace settings' })
+  updateSettings(
     @Param('slug') slug: string,
-    @Body() dto: UpdateWorkspaceDto,
+    @Body() dto: UpdateSettingsDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.tenantsService.replaceWorkspace(slug, dto, user.tenantId);
+    return this.tenantsService.updateSettings(slug, dto, user.tenantId);
   }
 }

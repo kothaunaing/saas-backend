@@ -6,7 +6,6 @@ import {
 import { Prisma, TenantStatus } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../database/prisma/prisma.service';
 import { PaginatedResponse } from '../../../common/dto/page-size.dto';
-import { CreateTenantDto } from './dto/create-tenant.dto';
 import { QueryTenantsDto } from './dto/query-tenants.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 
@@ -144,40 +143,6 @@ export class TenantsService {
     }
 
     return this.mapTenant(tenant);
-  }
-
-  async create(dto: CreateTenantDto): Promise<TenantAdminDetail> {
-    const existing = await this.prisma.tenant.findFirst({
-      where: {
-        OR: [{ slug: dto.slug }, { email: dto.email }],
-      },
-    });
-
-    if (existing) {
-      throw new ConflictException(
-        'A tenant with this slug or email already exists',
-      );
-    }
-
-    const created = await this.prisma.tenant.create({
-      data: {
-        slug: dto.slug,
-        name: dto.name,
-        ownerName: dto.ownerName,
-        email: dto.email,
-        city: dto.city,
-        planId: dto.planId,
-        status: dto.status ?? TenantStatus.TRIAL,
-      },
-      include: {
-        plan: true,
-        _count: {
-          select: { locations: true, staff: true, appointments: true },
-        },
-      },
-    });
-
-    return this.mapTenant(created);
   }
 
   async update(id: string, dto: UpdateTenantDto): Promise<TenantAdminDetail> {

@@ -13,7 +13,6 @@ export interface ScheduleRequest {
   serviceId: string;
   staffId: string;
   startsAt: Date;
-  timezone: string;
   excludeAppointmentId?: string;
   lockStaff?: boolean;
 }
@@ -64,7 +63,7 @@ export class SchedulingService {
         'Staff member is inactive or not qualified for this service',
       );
 
-    const local = localDateParts(request.startsAt, request.timezone);
+    const local = localDateParts(request.startsAt);
     const workDay = staff.hours.find(
       (day) => day.dayOfWeek === local.dayOfWeek,
     );
@@ -109,29 +108,14 @@ export class SchedulingService {
   }
 }
 
-function localDateParts(
-  date: Date,
-  timezone: string,
-): {
+function localDateParts(date: Date): {
   dayOfWeek: number;
   hour: number;
   minute: number;
 } {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-  const values = Object.fromEntries(
-    parts.map((part) => [part.type, part.value]),
-  );
   return {
-    dayOfWeek: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
-      values.weekday,
-    ),
-    hour: Number(values.hour),
-    minute: Number(values.minute),
+    dayOfWeek: date.getUTCDay(),
+    hour: date.getUTCHours(),
+    minute: date.getUTCMinutes(),
   };
 }

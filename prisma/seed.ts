@@ -51,6 +51,34 @@ async function seedHours(staffId: string, start = '09:00', end = '18:00') {
 
 async function main() {
   const passwordHash = await hash(password, 12);
+  await prisma.plan.upsert({
+    where: { name: 'Trial' },
+    update: {
+      price: 0,
+      interval: 'month',
+      tenantLimit: 1,
+      staffLimit: 3,
+      features: [
+        'Appointment scheduling',
+        'Customer management',
+        'Basic reports',
+      ],
+      active: true,
+    },
+    create: {
+      id: 'seed-plan-trial',
+      name: 'Trial',
+      price: 0,
+      interval: 'month',
+      tenantLimit: 1,
+      staffLimit: 3,
+      features: [
+        'Appointment scheduling',
+        'Customer management',
+        'Basic reports',
+      ],
+    },
+  });
   const plans = await Promise.all([
     prisma.plan.upsert({
       where: { name: 'Basic' },
@@ -161,7 +189,6 @@ async function main() {
           'Card and mobile payment',
         ],
         currency: 'USD',
-        timezone: 'Asia/Yangon',
         confirmation: true,
         reminders: true,
         loyalty: true,
@@ -188,7 +215,6 @@ async function main() {
         imageUrl: '/images/salon.jpg',
         amenities: ['Coffee bar', 'Free Wi-Fi', 'Card and mobile payment'],
         currency: 'USD',
-        timezone: 'Asia/Yangon',
         confirmation: true,
         reminders: true,
         loyalty: true,
@@ -209,7 +235,6 @@ async function main() {
         city: 'Mandalay',
         amenities: [],
         currency: 'USD',
-        timezone: 'Asia/Yangon',
         status: TenantStatus.PENDING,
         planId: enterprise.id,
       },
@@ -226,7 +251,6 @@ async function main() {
         city: 'Naypyidaw',
         amenities: [],
         currency: 'USD',
-        timezone: 'Asia/Yangon',
         status: TenantStatus.SUSPENDED,
         planId: pro.id,
       },
@@ -259,8 +283,8 @@ async function main() {
   ] as const)
     await prisma.location.upsert({
       where: { id },
-      update: { name, address, city, timezone: 'Asia/Yangon' },
-      create: { id, tenantId, name, address, city, timezone: 'Asia/Yangon' },
+      update: { name, address, city },
+      create: { id, tenantId, name, address, city },
     });
 
   const serviceRows = [

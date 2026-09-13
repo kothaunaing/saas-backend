@@ -5,7 +5,6 @@ import {
   Get,
   Param,
   Patch,
-  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -14,7 +13,6 @@ import { UserRole } from '../../../generated/prisma/client';
 import { Roles } from '../../../auth/decorators/roles/roles.decorator';
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth/jwt-auth.guard';
 import { RolesGuard } from '../../../auth/guards/roles/roles.guard';
-import { CreateTenantDto } from './dto/create-tenant.dto';
 import { QueryTenantsDto } from './dto/query-tenants.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { TenantsService } from './tenants.service';
@@ -37,12 +35,6 @@ export class TenantsController {
   @ApiOperation({ summary: 'Get a tenant by ID' })
   findOne(@Param('id') id: string) {
     return this.tenantsService.findOne(id);
-  }
-
-  @Post()
-  @ApiOperation({ summary: 'Create a new tenant' })
-  create(@Body() dto: CreateTenantDto) {
-    return this.tenantsService.create(dto);
   }
 
   @Patch(':id')

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../database/prisma/prisma.service';
 import type { AuthUser } from '../../../auth/auth.types';
+import { utcDateTimeParts } from '../../../common/utils/datetime';
 import {
   CreateReviewDto,
   UpdateCustomerProfileDto,
@@ -18,7 +19,10 @@ export class CustomerAccountService {
       where: { id: user.id },
     });
     const customers = await this.prisma.customer.findMany({
-      where: { email: identity.email },
+      where: {
+        email: identity.email,
+        tenant: { status: { in: ['ACTIVE', 'TRIAL'] } },
+      },
       include: {
         tenant: {
           include: {
@@ -67,12 +71,13 @@ export class CustomerAccountService {
           contact: profile,
           appointment: {
             id: appointment.id,
+            startsAt: appointment.startsAt,
             customerId: customer.id,
             serviceId: appointment.serviceId,
             staffId: appointment.staffId,
-            date: localParts(appointment.startsAt, appointment.tenant.timezone)
+            date: utcDateTimeParts(appointment.startsAt)
               .date,
-            time: localParts(appointment.startsAt, appointment.tenant.timezone)
+            time: utcDateTimeParts(appointment.startsAt)
               .time,
             status: title(appointment.status),
             notes: appointment.notes ?? '',
@@ -88,7 +93,10 @@ export class CustomerAccountService {
     const email = dto.email.toLowerCase();
     await this.prisma.$transaction([
       this.prisma.customer.updateMany({
-        where: { email: identity.email },
+        where: {
+          email: identity.email,
+          tenant: { status: { in: ['ACTIVE', 'TRIAL'] } },
+        },
         data: { ...dto, email },
       }),
       this.prisma.user.update({
@@ -103,7 +111,11 @@ export class CustomerAccountService {
       where: { id: user.id },
     });
     const appointment = await this.prisma.appointment.findFirst({
-      where: { id: appointmentId, customer: { email: identity.email } },
+      where: {
+        id: appointmentId,
+        customer: { email: identity.email },
+        tenant: { status: { in: ['ACTIVE', 'TRIAL'] } },
+      },
     });
     if (!appointment)
       throw new ForbiddenException('Booking does not belong to this account');
@@ -130,6 +142,7 @@ export class CustomerAccountService {
         id: dto.appointmentId,
         status: 'COMPLETED',
         customer: { email: identity.email },
+        tenant: { status: { in: ['ACTIVE', 'TRIAL'] } },
       },
       include: { customer: true },
     });
@@ -164,21 +177,3 @@ function title(value: string) {
     .replace('No show', 'No-show');
 }
 
-function localParts(date: Date, timezone: string) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-  const value = Object.fromEntries(
-    parts.map((part) => [part.type, part.value]),
-  );
-  return {
-    date: `${value.year}-${value.month}-${value.day}`,
-    time: `${value.hour}:${value.minute}`,
-  };
-}
