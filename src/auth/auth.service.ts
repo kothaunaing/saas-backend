@@ -88,18 +88,24 @@ export class AuthService {
 
   async registerTenant(dto: RegisterTenantDto) {
     const email = dto.email.trim().toLowerCase();
-    const [user, tenant, plan] = await Promise.all([
+    const [user, tenant, trialPlan, requestedPlan] = await Promise.all([
       this.prisma.user.findUnique({ where: { email } }),
       this.prisma.tenant.findFirst({
         where: { OR: [{ email }, { slug: dto.slug }] },
       }),
       this.prisma.plan.findFirst({ where: { name: 'Trial', active: true } }),
+      dto.planId
+        ? this.prisma.plan.findFirst({ where: { id: dto.planId, active: true } })
+        : null,
     ]);
     if (user || tenant)
       throw new ConflictException(
         'This email or business slug is already registered',
       );
-    if (!plan) throw new NotFoundException('Trial plan is not available');
+    const plan = requestedPlan ?? trialPlan;
+    if (!plan) throw new NotFoundException('Selected plan is not available');
+    const isTrial = plan.name.toLowerCase() === 'trial';
+    const status = isTrial ? TenantStatus.TRIAL : TenantStatus.ACTIVE;
     const passwordHash = await hash(dto.password, 12);
     const created = await this.prisma.$transaction(async (tx) => {
       const business = await tx.tenant.create({
@@ -112,7 +118,7 @@ export class AuthService {
           address: dto.address,
           city: dto.city,
           planId: plan.id,
-          status: TenantStatus.TRIAL,
+          status,
         },
       });
       await tx.user.create({
@@ -130,7 +136,7 @@ export class AuthService {
       id: created.id,
       slug: created.slug,
       status: created.status,
-      message: 'Trial workspace created',
+      message: `${plan.name} workspace created`,
     };
   }
   async profile(userId: string) {

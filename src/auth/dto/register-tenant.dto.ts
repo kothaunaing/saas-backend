@@ -31,4 +31,8 @@ export class RegisterTenantDto {
   @IsString()
   @MaxLength(100)
   city?: string;
+  @ApiPropertyOptional({ description: 'Selected plan ID for workspace registration' })
+  @IsOptional()
+  @IsString()
+  planId?: string;
 }
