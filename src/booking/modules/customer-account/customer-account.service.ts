@@ -17,20 +17,46 @@ export class CustomerAccountService {
   async account(user: AuthUser) {
     const identity = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
+      select: { name: true, email: true },
     });
     const customers = await this.prisma.customer.findMany({
       where: {
         email: identity.email,
         tenant: { status: { in: ['ACTIVE', 'TRIAL'] } },
       },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        notes: true,
+        points: true,
         tenant: {
-          include: {
-            rewards: { where: { active: true }, orderBy: { points: 'asc' } },
+          select: {
+            slug: true,
+            rewards: {
+              where: { active: true },
+              orderBy: { points: 'asc' },
+              select: {
+                id: true,
+                name: true,
+                points: true,
+                description: true,
+                active: true,
+              },
+            },
           },
         },
         appointments: {
-          include: { tenant: true, service: true, staff: true },
+          select: {
+            id: true,
+            startsAt: true,
+            serviceId: true,
+            staffId: true,
+            status: true,
+            notes: true,
+            tenant: { select: { slug: true } },
+          },
           orderBy: { startsAt: 'desc' },
         },
       },
