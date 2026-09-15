@@ -2,7 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateRewardDto {
-  @ApiProperty({ description: 'Reward title', example: '$20 Off Any Service' })
+  @ApiProperty({ description: 'Reward title', example: 'Ks 20 Off Any Service' })
   @IsString()
   name!: string;
 

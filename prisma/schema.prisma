@@ -115,7 +115,7 @@ model Tenant {
   description     String?
   imageUrl        String?
   amenities       String[]
-  currency        String          @default("USD")
+  currency        String          @default("MMK")
   confirmation    Boolean         @default(true)
   reminders       Boolean         @default(true)
   loyalty         Boolean         @default(false)
